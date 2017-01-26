@@ -1,0 +1,176 @@
+
+
+made by Svetlana Tabulina
+
+---
+title: "Machine learning capstone analysis"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(plyr)
+library(lubridate)
+library(dplyr)
+library(rpart)
+library(gbm)
+```
+
+## Executive summary
+
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively.  Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: 
+exactly according to the specification (Class A), 
+throwing the elbows to the front (Class B), 
+lifting the dumbbell only halfway (Class C), 
+lowering the dumbbell only halfway (Class D) 
+throwing the hips to the front (Class E).
+
+The goal of project is to predict the manner in which they did the exercise.
+
+There are two datasets avaliable:
+training set - 19622 observations of  160 variables, including "classe"  factor variable (fashions) to build the model
+
+testing set - 20 observations to predict 20 different test cases
+
+## Download and read data
+
+```{r download data, results="hide"}
+setwd("C:/Users/easkv/Desktop/Rfolder/machine learning")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",destfile = "./training.csv")
+
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",destfile = "./testing.csv")
+```
+
+As i see from the csv files downloaded, there are tree strings "NA","","#DIV/0!" that should be read as NA.
+To avoid numeric variables readed as factors, i set stringAsFactors=FALSE, and set needed varibles class manually.
+
+```{r read data}
+captraining<-read.csv("./training.csv",sep=",",dec=".",stringsAsFactors = FALSE,na.strings = c("NA","","#DIV/0!"))
+captraining$user_name<-as.factor(captraining$user_name)
+captraining$cvtd_timestamp<-dmy_hm(captraining$cvtd_timestamp)
+captraining$new_window<-as.factor(captraining$new_window)
+captraining$classe<-as.factor(captraining$classe)
+
+testing<-read.csv("./testing.csv",sep=",",dec=".",stringsAsFactors = FALSE,na.strings = c("NA","","#DIV/0!"))
+
+testing$user_name<-as.factor(testing$user_name)
+testing$cvtd_timestamp<-dmy_hm(testing$cvtd_timestamp)
+testing$new_window<-as.factor(testing$new_window)
+```
+
+To deal with NA i delete columns with more then 50% NA. 60 variables remained and there are no more NA.
+
+```{r delete varibles with more then 50% NA}
+training<-captraining[, -which(colMeans(is.na(captraining)) > 0.5)]
+dim(training)
+sum(complete.cases(training))
+```
+
+
+## Exploratory analysis
+
+```{r exploratory analysis}
+
+qplot(X,classe,data=training,color=classe,main="Class of observation versus variable X")
+
+
+cc2<- training %>%
+  select(cvtd_timestamp,classe, user_name) %>%
+  group_by(cvtd_timestamp, classe, user_name) %>%
+  summarize(count=n())
+
+qplot(x=cvtd_timestamp, y=count, data=cc2, color=classe, shape=user_name, main="Number of observations of  each class \n by timestamp and user name")
+```
+
+
+
+From this plots we can see, that rows are sorted by class, and X is row index.
+THis means that X shouldnt be used in model building.
+
+Timestamp and user name plot shows, that we dont need to care about time slices, it seems what each user make  repetitions in his own day and time.
+
+So in my analysis i will use all variables, that dont have NA values, excluding X.
+
+## Cross validation and model 
+
+I have one set to build a model (training set), and will use k-folds cross validation with k=10 to train and test the model.
+
+```{r cross validation}
+train_control<- trainControl(method="cv", number=10, savePredictions = TRUE)
+```
+
+I decided to start from decisions tree. Set the seed (101):
+
+```{r decision trees,results="hide"}
+training<-training[,2:60]
+
+set.seed(101)
+
+model_rpart<- train(classe~., data=training, trControl=train_control, method="rpart")
+predictions_rpart<- predict(model_rpart,training)
+```
+
+
+```{r decision trees confusion matrix}
+cm<-confusionMatrix(predictions_rpart,training$classe)
+cm$overall
+cm$table
+```
+
+Accuracy is not sufficient.
+Next try is linear discriminant analysis: 
+
+```{r lda ,results="hide", message=FALSE, warning=FALSE,error=FALSE}
+set.seed(101)
+
+model_lda<- train(classe~., data=training, trControl=train_control, method="lda")
+predictions_lda<- predict(model_lda,training)
+```
+
+
+```{r lda confusion matrix}
+cm<-confusionMatrix(predictions_lda,training$classe)
+cm$overall
+cm$table
+```
+
+
+Accuracy is better, but us I need at least 80% correct answers to pass the test, i need at least 80% accuracy.
+Lets try boosting
+
+```{r boosting,results="hide"}
+set.seed(101)
+
+model_gbm<- train(classe~., data=training, trControl=train_control, method="gbm")
+predictions_gbm<- predict(model_gbm,training)
+```
+
+
+```{r boosting confusion matrix}
+cm<-confusionMatrix(predictions_gbm,training$classe)
+cm$overall
+cm$table
+```
+
+Accuracy is perfect!
+In the confusion matrix above there is all information about this model.
+Expected out of sample error for testing data should be about 1% (not dramatically bigger)
+
+Lets predict the class for testing data:
+
+```{r prediction}
+
+predict(model_gbm,testing)
+
+```
+
+The Course Project Prediction Quiz shows that my model predict 20 cases from 20!
+
+
+
+
+
+
+
+
